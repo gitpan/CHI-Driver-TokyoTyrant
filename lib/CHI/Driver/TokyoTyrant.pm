@@ -12,7 +12,7 @@ use utf8;
 
 extends 'CHI::Driver';
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 has 'rdb'      => ( is => 'rw', init_arg => undef, lazy_build => 1);
 has 'hostname' => ( is => 'ro', required => 1, default => 'localhost' );
@@ -92,19 +92,11 @@ sub remove {
 sub clear {
   my ($self) = @_;
 
-
   my $namespace = $self->namespace;
 
-  my @keys;
+  my $keys = $self->rdb->fwmkeys($namespace . ":", -1);
 
-  $self->rdb->iterinit();
-
-  while(defined(my $key = $self->rdb->iternext())){
-    next unless $key =~ /^$namespace:/;
-    push @keys, $key;
-  }
-   
-  $self->rdb->misc('outlist', \@keys);
+  $self->rdb->misc('outlist', $keys);
 
 }
 
@@ -117,12 +109,10 @@ sub get_keys {
 
   my $namespace = $self->namespace;
 
-  my @keys;
-  while(defined(my $key = $self->rdb->iternext())){
-    next unless $key =~ /^$namespace:(.+)/;
-    push @keys, $1;
-  }
-   
+  my $keys = $self->rdb->fwmkeys($namespace . ":", -1);
+  my $l = length($namespace)+1;
+
+  my @keys = map { substr($_,$l) } @$keys;
 
   return @keys;
 
@@ -150,40 +140,19 @@ sub get_namespaces {
 
 sub fetch_multi_hashref {
 
-  my ($self, @keys) = @_;
+  my ($self, $keys) = @_;
 
   my $namespace = $self->namespace;
-  @keys = map {"${namespace}:$_"} @keys;
+  my @keys = map {"${namespace}:$_"} @$keys;
 
   my $out = $self->rdb->misc('getlist', \@keys) ||
     die $self->rdb->errmsg($self->rdb->ecode);
 
-
-  my %result = @$out;
-
-
-
-  return \%result;
+  my $l = length($namespace)+1;
+  my $c = 0;
+  my %res = map { $c++ % 2 ? $_ : substr($_,$l) } @{$out};
+  return \%res; 
 }
-
-sub store_multi {
-
-  my ($self, $data) = @_;
-
-  my $namespace = $self->namespace;
-
-  # The putlist method requires sequence of keys and values as an array ref.
-  # Flatten the hashref into array and prepend current namespace to keys.
-  my @data_as_array = map { my $counter++  % 2 ? "${namespace}:$_" : $_ } %$data;
-
-  my $r = $self->rdb->misc('putlist', \@data_as_array);
-
-  if ($r == undef) {
-    die $self->rdb->errmsg($self->rdb->ecode);
-  }
-
-}
-
 
 1;
 
